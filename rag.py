@@ -19,30 +19,45 @@ def get_openai_client(api_key: str = None) -> OpenAI:
 
 # ============== PROCESSAMENTO DE PDF ==============
 
-def extract_text_by_page(pdf_file, use_ocr: bool = False) -> List[Dict]:
+def extract_text_by_page(pdf_file, use_ocr: bool = False, max_pages: int = 100) -> List[Dict]:
     """Extrai texto de cada página do PDF com metadados."""
     pdf_file.seek(0)
+    pdf_bytes = pdf_file.read()
     pages_data = []
 
-    with pdfplumber.open(pdf_file) as pdf:
-        total_pages = len(pdf.pages)
-        for i, page in enumerate(pdf.pages):
-            page_text = page.extract_text() or ""
-            pages_data.append({
-                "page_num": i + 1,
-                "total_pages": total_pages,
-                "text": page_text
-            })
+    try:
+        import io
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            total_pages = min(len(pdf.pages), max_pages)
+            for i in range(total_pages):
+                try:
+                    page = pdf.pages[i]
+                    page_text = page.extract_text() or ""
+                    pages_data.append({
+                        "page_num": i + 1,
+                        "total_pages": total_pages,
+                        "text": page_text
+                    })
+                except Exception:
+                    pages_data.append({
+                        "page_num": i + 1,
+                        "total_pages": total_pages,
+                        "text": ""
+                    })
+    except Exception as e:
+        raise RuntimeError(f"Erro ao abrir PDF: {str(e)}")
 
     # Se use_ocr ou pouco texto extraído, tenta OCR
     total_text = sum(len(p["text"]) for p in pages_data)
     if use_ocr or total_text < 100:
-        pdf_file.seek(0)
-        ocr_pages = extract_pages_with_ocr(pdf_file)
-        if ocr_pages:
-            ocr_total = sum(len(p["text"]) for p in ocr_pages)
-            if ocr_total > total_text:
-                pages_data = ocr_pages
+        try:
+            ocr_pages = extract_pages_with_ocr(io.BytesIO(pdf_bytes))
+            if ocr_pages:
+                ocr_total = sum(len(p["text"]) for p in ocr_pages)
+                if ocr_total > total_text:
+                    pages_data = ocr_pages
+        except Exception:
+            pass
 
     return pages_data
 
