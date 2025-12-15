@@ -95,10 +95,15 @@ with st.sidebar:
 
                     # Etapa 2: Dividir em chunks
                     status.info("✂️ Dividindo em chunks...")
-                    chunks = split_text_into_chunks(text)
+                    try:
+                        chunks = split_text_into_chunks(text)
+                    except Exception as chunk_err:
+                        status.error(f"Erro no chunking: {chunk_err}")
+                        progress_bar.empty()
+                        continue
 
                     if not chunks:
-                        status.error("Falha ao dividir texto")
+                        status.error("Nenhum chunk gerado")
                         progress_bar.empty()
                         continue
 

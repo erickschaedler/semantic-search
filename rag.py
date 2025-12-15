@@ -34,28 +34,20 @@ def extract_text_from_pdf(pdf_file) -> str:
     return text
 
 
-def split_text_into_chunks(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-    """Divide o texto em chunks menores com overlap."""
-    if not text:
+def split_text_into_chunks(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str]:
+    """Divide o texto em chunks menores - versão simplificada."""
+    if not text or len(text) < 10:
         return []
 
+    # Limpa o texto
+    text = text.strip()
+
+    # Divide de forma simples
     chunks = []
-    start = 0
-    text_length = len(text)
-
-    while start < text_length:
-        end = start + chunk_size
-
-        if end < text_length:
-            last_space = text.rfind(" ", start, end)
-            if last_space > start:
-                end = last_space
-
-        chunk = text[start:end].strip()
-        if chunk:
+    for i in range(0, len(text), chunk_size - overlap):
+        chunk = text[i:i + chunk_size].strip()
+        if len(chunk) > 20:
             chunks.append(chunk)
-
-        start = end - overlap if end < text_length else text_length
 
     return chunks
 
