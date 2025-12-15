@@ -1,26 +1,15 @@
 """
-Módulo RAG (Retrieval-Augmented Generation)
-Contém toda a lógica de processamento de PDF, embeddings e busca semântica.
+Módulo RAG (Retrieval-Augmented Generation) - Versão Simplificada
+Usa apenas numpy para busca vetorial em memória.
 """
 
 import os
-import tempfile
 from typing import List, Tuple
 import fitz  # PyMuPDF
 from openai import OpenAI
-import chromadb
-from chromadb.config import Settings
-
-# OCR desabilitado temporariamente
-OCR_AVAILABLE = False
+import numpy as np
 
 
-def check_ocr_available():
-    """OCR desabilitado."""
-    return False
-
-
-# Inicializa cliente OpenAI
 def get_openai_client(api_key: str = None) -> OpenAI:
     """Retorna cliente OpenAI configurado."""
     key = api_key or os.getenv("OPENAI_API_KEY")
@@ -31,14 +20,11 @@ def get_openai_client(api_key: str = None) -> OpenAI:
 
 # ============== PROCESSAMENTO DE PDF ==============
 
-def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
-    """
-    Extrai texto de um arquivo PDF usando PyMuPDF.
-    """
+def extract_text_from_pdf(pdf_file) -> str:
+    """Extrai texto de um arquivo PDF usando PyMuPDF."""
     pdf_file.seek(0)
     pdf_bytes = pdf_file.read()
 
-    # Abre o PDF com PyMuPDF
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     text = ""
@@ -48,60 +34,11 @@ def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
             text += page_text + "\n"
 
     doc.close()
-
-    # Se extraiu pouco texto e OCR está disponível, tenta OCR
-    if (use_ocr or len(text.strip()) < 100) and check_ocr_available():
-        pdf_file.seek(0)
-        text = extract_text_with_ocr(pdf_file)
-
-    return text
-
-
-def extract_text_with_ocr(pdf_file) -> str:
-    """Extrai texto de PDF usando OCR (para PDFs escaneados)."""
-    if not check_ocr_available():
-        raise RuntimeError("OCR não disponível. Instale pdf2image e pytesseract.")
-
-    pdf_file.seek(0)
-    pdf_bytes = pdf_file.read()
-
-    # Converte PDF para imagens (DPI menor = menos memória)
-    try:
-        images = convert_from_bytes(pdf_bytes, dpi=150)
-    except Exception as e:
-        raise RuntimeError(f"Erro ao converter PDF para imagens: {str(e)}")
-
-    # Extrai texto de cada página com OCR
-    text = ""
-    for i, image in enumerate(images):
-        try:
-            # Tenta português, se falhar usa inglês
-            try:
-                page_text = pytesseract.image_to_string(image, lang='por')
-            except:
-                page_text = pytesseract.image_to_string(image)
-            text += f"\n--- Página {i+1} ---\n{page_text}"
-        except Exception as e:
-            text += f"\n--- Página {i+1} ---\n[Erro no OCR: {str(e)}]"
-        finally:
-            # Libera memória da imagem
-            del image
-
     return text
 
 
 def split_text_into_chunks(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-    """
-    Divide o texto em chunks menores com overlap.
-
-    Args:
-        text: Texto completo
-        chunk_size: Tamanho máximo de cada chunk em caracteres
-        overlap: Quantidade de caracteres de sobreposição entre chunks
-
-    Returns:
-        Lista de chunks de texto
-    """
+    """Divide o texto em chunks menores com overlap."""
     if not text:
         return []
 
@@ -112,9 +49,7 @@ def split_text_into_chunks(text: str, chunk_size: int = 1000, overlap: int = 200
     while start < text_length:
         end = start + chunk_size
 
-        # Se não é o último chunk, tenta quebrar em um espaço
         if end < text_length:
-            # Procura o último espaço dentro do chunk
             last_space = text.rfind(" ", start, end)
             if last_space > start:
                 end = last_space
@@ -131,16 +66,10 @@ def split_text_into_chunks(text: str, chunk_size: int = 1000, overlap: int = 200
 # ============== EMBEDDINGS ==============
 
 def generate_embeddings(texts: List[str], client: OpenAI) -> List[List[float]]:
-    """
-    Gera embeddings para uma lista de textos usando OpenAI.
+    """Gera embeddings para uma lista de textos usando OpenAI."""
+    if not texts:
+        return []
 
-    Args:
-        texts: Lista de textos
-        client: Cliente OpenAI
-
-    Returns:
-        Lista de embeddings (vetores)
-    """
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=texts
@@ -157,91 +86,56 @@ def generate_single_embedding(text: str, client: OpenAI) -> List[float]:
     return response.data[0].embedding
 
 
-# ============== VECTOR STORE (ChromaDB) ==============
+# ============== VECTOR STORE (Em Memória com Numpy) ==============
 
-def get_chroma_client(persist_directory: str = "./chroma_db") -> chromadb.Client:
-    """Retorna cliente ChromaDB com persistência."""
-    return chromadb.Client(Settings(
-        chroma_db_impl="duckdb+parquet",
-        persist_directory=persist_directory,
-        anonymized_telemetry=False
-    ))
+class SimpleVectorStore:
+    """Armazenamento vetorial simples em memória."""
 
+    def __init__(self):
+        self.documents = []
+        self.embeddings = []
+        self.metadatas = []
 
-def get_or_create_collection(client: chromadb.Client, name: str = "manuals"):
-    """Obtém ou cria uma coleção no ChromaDB."""
-    return client.get_or_create_collection(
-        name=name,
-        metadata={"hnsw:space": "cosine"}
-    )
+    def add(self, documents: List[str], embeddings: List[List[float]], source: str = "manual"):
+        """Adiciona documentos ao store."""
+        for i, (doc, emb) in enumerate(zip(documents, embeddings)):
+            self.documents.append(doc)
+            self.embeddings.append(emb)
+            self.metadatas.append({"source": source, "chunk_index": i})
 
+    def search(self, query_embedding: List[float], n_results: int = 3) -> Tuple[List[str], List[dict]]:
+        """Busca documentos similares usando similaridade de cosseno."""
+        if not self.embeddings:
+            return [], []
 
-def add_documents_to_collection(
-    collection,
-    chunks: List[str],
-    embeddings: List[List[float]],
-    source: str = "manual"
-):
-    """
-    Adiciona documentos à coleção do ChromaDB.
+        # Converte para numpy
+        query = np.array(query_embedding)
+        embeddings = np.array(self.embeddings)
 
-    Args:
-        collection: Coleção do ChromaDB
-        chunks: Lista de chunks de texto
-        embeddings: Lista de embeddings correspondentes
-        source: Nome da fonte (ex: nome do PDF)
-    """
-    ids = [f"{source}_{i}" for i in range(len(chunks))]
-    metadatas = [{"source": source, "chunk_index": i} for i in range(len(chunks))]
+        # Calcula similaridade de cosseno
+        query_norm = query / np.linalg.norm(query)
+        embeddings_norm = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+        similarities = np.dot(embeddings_norm, query_norm)
 
-    collection.add(
-        ids=ids,
-        embeddings=embeddings,
-        documents=chunks,
-        metadatas=metadatas
-    )
+        # Pega os top N
+        top_indices = np.argsort(similarities)[::-1][:n_results]
 
+        docs = [self.documents[i] for i in top_indices]
+        metas = [self.metadatas[i] for i in top_indices]
 
-def search_similar(
-    collection,
-    query_embedding: List[float],
-    n_results: int = 3
-) -> Tuple[List[str], List[dict]]:
-    """
-    Busca documentos similares no ChromaDB.
+        return docs, metas
 
-    Args:
-        collection: Coleção do ChromaDB
-        query_embedding: Embedding da query
-        n_results: Número de resultados
-
-    Returns:
-        Tupla com (documentos, metadados)
-    """
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=n_results
-    )
-
-    documents = results["documents"][0] if results["documents"] else []
-    metadatas = results["metadatas"][0] if results["metadatas"] else []
-
-    return documents, metadatas
+    def clear(self):
+        """Limpa o store."""
+        self.documents = []
+        self.embeddings = []
+        self.metadatas = []
 
 
 # ============== CHAT COM CONTEXTO ==============
 
 def build_context_prompt(question: str, relevant_chunks: List[str]) -> str:
-    """
-    Constrói o prompt com contexto para a LLM.
-
-    Args:
-        question: Pergunta do usuário
-        relevant_chunks: Chunks relevantes encontrados
-
-    Returns:
-        Prompt formatado
-    """
+    """Constrói o prompt com contexto para a LLM."""
     context = "\n\n---\n\n".join(relevant_chunks)
 
     return f"""Você é um assistente especializado em responder perguntas sobre manuais técnicos.
@@ -263,18 +157,7 @@ def chat_with_context(
     client: OpenAI,
     chat_history: List[dict] = None
 ) -> str:
-    """
-    Gera resposta usando GPT com contexto dos chunks relevantes.
-
-    Args:
-        question: Pergunta do usuário
-        relevant_chunks: Chunks relevantes do manual
-        client: Cliente OpenAI
-        chat_history: Histórico de mensagens (opcional)
-
-    Returns:
-        Resposta gerada
-    """
+    """Gera resposta usando GPT com contexto dos chunks relevantes."""
     system_prompt = build_context_prompt(question, relevant_chunks)
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -299,21 +182,10 @@ def chat_with_context(
 def process_pdf_pipeline(
     pdf_file,
     openai_client: OpenAI,
-    collection,
+    vector_store: SimpleVectorStore,
     source_name: str = "manual"
 ) -> int:
-    """
-    Pipeline completo: PDF -> Chunks -> Embeddings -> ChromaDB
-
-    Args:
-        pdf_file: Arquivo PDF
-        openai_client: Cliente OpenAI
-        collection: Coleção ChromaDB
-        source_name: Nome identificador do documento
-
-    Returns:
-        Número de chunks processados
-    """
+    """Pipeline completo: PDF -> Chunks -> Embeddings -> Store"""
     # Extrai texto
     text = extract_text_from_pdf(pdf_file)
 
@@ -326,8 +198,8 @@ def process_pdf_pipeline(
     # Gera embeddings
     embeddings = generate_embeddings(chunks, openai_client)
 
-    # Salva no ChromaDB
-    add_documents_to_collection(collection, chunks, embeddings, source_name)
+    # Salva no store
+    vector_store.add(chunks, embeddings, source_name)
 
     return len(chunks)
 
@@ -335,28 +207,16 @@ def process_pdf_pipeline(
 def ask_question_pipeline(
     question: str,
     openai_client: OpenAI,
-    collection,
+    vector_store: SimpleVectorStore,
     n_results: int = 3,
     chat_history: List[dict] = None
 ) -> Tuple[str, List[str]]:
-    """
-    Pipeline completo de pergunta: Query -> Busca -> Resposta
-
-    Args:
-        question: Pergunta do usuário
-        openai_client: Cliente OpenAI
-        collection: Coleção ChromaDB
-        n_results: Número de chunks a recuperar
-        chat_history: Histórico do chat
-
-    Returns:
-        Tupla com (resposta, chunks_usados)
-    """
+    """Pipeline completo de pergunta: Query -> Busca -> Resposta"""
     # Gera embedding da pergunta
     query_embedding = generate_single_embedding(question, openai_client)
 
     # Busca chunks similares
-    relevant_chunks, _ = search_similar(collection, query_embedding, n_results)
+    relevant_chunks, _ = vector_store.search(query_embedding, n_results)
 
     if not relevant_chunks:
         return "Não encontrei informações relevantes no manual para responder essa pergunta.", []

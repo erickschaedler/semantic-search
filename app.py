@@ -3,14 +3,12 @@ Interface Streamlit para o Chat com Busca Semântica em Manuais
 """
 
 import streamlit as st
-import chromadb
-from chromadb.config import Settings
 import traceback
 from rag import (
     get_openai_client,
     process_pdf_pipeline,
     ask_question_pipeline,
-    get_or_create_collection
+    SimpleVectorStore
 )
 
 # ============== CONFIGURAÇÃO DA PÁGINA ==============
@@ -35,16 +33,8 @@ def init_session_state():
     if "processed_files" not in st.session_state:
         st.session_state.processed_files = []
 
-    if "chroma_client" not in st.session_state:
-        st.session_state.chroma_client = chromadb.Client(Settings(
-            anonymized_telemetry=False
-        ))
-
-    if "collection" not in st.session_state:
-        st.session_state.collection = get_or_create_collection(
-            st.session_state.chroma_client,
-            "manuals"
-        )
+    if "vector_store" not in st.session_state:
+        st.session_state.vector_store = SimpleVectorStore()
 
 
 init_session_state()
@@ -87,11 +77,10 @@ with st.sidebar:
                 progress_text.info(f"Processando {uploaded_file.name}...")
                 try:
                     client = get_openai_client(api_key)
-                    progress_text.info("Extraindo texto do PDF...")
                     num_chunks = process_pdf_pipeline(
                         uploaded_file,
                         client,
-                        st.session_state.collection,
+                        st.session_state.vector_store,
                         uploaded_file.name
                     )
                     st.session_state.processed_files.append(uploaded_file.name)
@@ -113,13 +102,7 @@ with st.sidebar:
         if st.button("🗑️ Limpar tudo", type="secondary"):
             st.session_state.messages = []
             st.session_state.processed_files = []
-            st.session_state.chroma_client = chromadb.Client(Settings(
-                anonymized_telemetry=False
-            ))
-            st.session_state.collection = get_or_create_collection(
-                st.session_state.chroma_client,
-                "manuals"
-            )
+            st.session_state.vector_store = SimpleVectorStore()
             st.rerun()
 
 
@@ -172,9 +155,9 @@ if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
                 answer, sources = ask_question_pipeline(
                     prompt,
                     client,
-                    st.session_state.collection,
+                    st.session_state.vector_store,
                     n_results=3,
-                    chat_history=chat_history[:-1]  # Exclui a pergunta atual
+                    chat_history=chat_history[:-1]
                 )
 
                 st.markdown(answer)
