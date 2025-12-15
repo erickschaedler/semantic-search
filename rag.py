@@ -5,7 +5,7 @@ Usa apenas numpy para busca vetorial em memória.
 
 import os
 from typing import List, Tuple
-import fitz  # PyMuPDF
+import pdfplumber
 from openai import OpenAI
 import numpy as np
 
@@ -21,19 +21,16 @@ def get_openai_client(api_key: str = None) -> OpenAI:
 # ============== PROCESSAMENTO DE PDF ==============
 
 def extract_text_from_pdf(pdf_file) -> str:
-    """Extrai texto de um arquivo PDF usando PyMuPDF."""
+    """Extrai texto de um arquivo PDF usando pdfplumber."""
     pdf_file.seek(0)
-    pdf_bytes = pdf_file.read()
-
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     text = ""
-    for page in doc:
-        page_text = page.get_text()
-        if page_text:
-            text += page_text + "\n"
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
 
-    doc.close()
     return text
 
 
