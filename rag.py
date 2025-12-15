@@ -61,14 +61,27 @@ def extract_text_with_ocr(pdf_file) -> str:
     pdf_file.seek(0)
     pdf_bytes = pdf_file.read()
 
-    # Converte PDF para imagens
-    images = convert_from_bytes(pdf_bytes, dpi=200)
+    # Converte PDF para imagens (DPI menor = menos memória)
+    try:
+        images = convert_from_bytes(pdf_bytes, dpi=150)
+    except Exception as e:
+        raise RuntimeError(f"Erro ao converter PDF para imagens: {str(e)}")
 
     # Extrai texto de cada página com OCR
     text = ""
     for i, image in enumerate(images):
-        page_text = pytesseract.image_to_string(image, lang='por')
-        text += f"\n--- Página {i+1} ---\n{page_text}"
+        try:
+            # Tenta português, se falhar usa inglês
+            try:
+                page_text = pytesseract.image_to_string(image, lang='por')
+            except:
+                page_text = pytesseract.image_to_string(image)
+            text += f"\n--- Página {i+1} ---\n{page_text}"
+        except Exception as e:
+            text += f"\n--- Página {i+1} ---\n[Erro no OCR: {str(e)}]"
+        finally:
+            # Libera memória da imagem
+            del image
 
     return text
 

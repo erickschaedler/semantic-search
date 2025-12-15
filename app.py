@@ -5,6 +5,7 @@ Interface Streamlit para o Chat com Busca Semântica em Manuais
 import streamlit as st
 import chromadb
 from chromadb.config import Settings
+import traceback
 from rag import (
     get_openai_client,
     process_pdf_pipeline,
@@ -82,19 +83,25 @@ with st.sidebar:
     if uploaded_files and api_key:
         for uploaded_file in uploaded_files:
             if uploaded_file.name not in st.session_state.processed_files:
-                with st.spinner(f"Processando {uploaded_file.name}..."):
-                    try:
-                        client = get_openai_client(api_key)
-                        num_chunks = process_pdf_pipeline(
-                            uploaded_file,
-                            client,
-                            st.session_state.collection,
-                            uploaded_file.name
-                        )
-                        st.session_state.processed_files.append(uploaded_file.name)
-                        st.success(f"✓ {uploaded_file.name} ({num_chunks} chunks)")
-                    except Exception as e:
-                        st.error(f"Erro: {str(e)}")
+                progress_text = st.empty()
+                progress_text.info(f"Processando {uploaded_file.name}...")
+                try:
+                    client = get_openai_client(api_key)
+                    progress_text.info("Extraindo texto do PDF...")
+                    num_chunks = process_pdf_pipeline(
+                        uploaded_file,
+                        client,
+                        st.session_state.collection,
+                        uploaded_file.name
+                    )
+                    st.session_state.processed_files.append(uploaded_file.name)
+                    progress_text.empty()
+                    st.success(f"✓ {uploaded_file.name} ({num_chunks} chunks)")
+                except Exception as e:
+                    progress_text.empty()
+                    st.error(f"Erro: {str(e)}")
+                    with st.expander("Detalhes do erro"):
+                        st.code(traceback.format_exc())
 
     # Lista de arquivos processados
     if st.session_state.processed_files:
