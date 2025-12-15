@@ -6,7 +6,7 @@ Contém toda a lógica de processamento de PDF, embeddings e busca semântica.
 import os
 import tempfile
 from typing import List, Tuple
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 from openai import OpenAI
 import chromadb
 from chromadb.config import Settings
@@ -33,21 +33,25 @@ def get_openai_client(api_key: str = None) -> OpenAI:
 
 def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
     """
-    Extrai texto de um arquivo PDF.
-
-    Se use_ocr=True ou se o texto extraído for muito curto, usa OCR.
+    Extrai texto de um arquivo PDF usando PyMuPDF.
     """
-    # Primeiro tenta extração normal
     pdf_file.seek(0)
-    reader = PdfReader(pdf_file)
+    pdf_bytes = pdf_file.read()
+
+    # Abre o PDF com PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
     text = ""
-    for page in reader.pages:
-        page_text = page.extract_text()
+    for page in doc:
+        page_text = page.get_text()
         if page_text:
             text += page_text + "\n"
 
+    doc.close()
+
     # Se extraiu pouco texto e OCR está disponível, tenta OCR
     if (use_ocr or len(text.strip()) < 100) and check_ocr_available():
+        pdf_file.seek(0)
         text = extract_text_with_ocr(pdf_file)
 
     return text
