@@ -11,22 +11,13 @@ from openai import OpenAI
 import chromadb
 from chromadb.config import Settings
 
-# OCR será importado sob demanda para não crashar na inicialização
-OCR_AVAILABLE = None  # None = não verificado ainda
+# OCR desabilitado temporariamente
+OCR_AVAILABLE = False
 
 
 def check_ocr_available():
-    """Verifica e importa OCR sob demanda."""
-    global OCR_AVAILABLE
-    if OCR_AVAILABLE is None:
-        try:
-            global convert_from_bytes, pytesseract
-            from pdf2image import convert_from_bytes
-            import pytesseract
-            OCR_AVAILABLE = True
-        except ImportError:
-            OCR_AVAILABLE = False
-    return OCR_AVAILABLE
+    """OCR desabilitado."""
+    return False
 
 
 # Inicializa cliente OpenAI
