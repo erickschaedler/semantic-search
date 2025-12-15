@@ -4,11 +4,20 @@ Contém toda a lógica de processamento de PDF, embeddings e busca semântica.
 """
 
 import os
+import tempfile
 from typing import List, Tuple
 from pypdf import PdfReader
 from openai import OpenAI
 import chromadb
 from chromadb.config import Settings
+
+# OCR imports
+try:
+    from pdf2image import convert_from_bytes
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 
 # Inicializa cliente OpenAI
@@ -22,14 +31,45 @@ def get_openai_client(api_key: str = None) -> OpenAI:
 
 # ============== PROCESSAMENTO DE PDF ==============
 
-def extract_text_from_pdf(pdf_file) -> str:
-    """Extrai texto de um arquivo PDF."""
+def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
+    """
+    Extrai texto de um arquivo PDF.
+
+    Se use_ocr=True ou se o texto extraído for muito curto, usa OCR.
+    """
+    # Primeiro tenta extração normal
+    pdf_file.seek(0)
     reader = PdfReader(pdf_file)
     text = ""
     for page in reader.pages:
         page_text = page.extract_text()
         if page_text:
             text += page_text + "\n"
+
+    # Se extraiu pouco texto e OCR está disponível, tenta OCR
+    if (use_ocr or len(text.strip()) < 100) and OCR_AVAILABLE:
+        text = extract_text_with_ocr(pdf_file)
+
+    return text
+
+
+def extract_text_with_ocr(pdf_file) -> str:
+    """Extrai texto de PDF usando OCR (para PDFs escaneados)."""
+    if not OCR_AVAILABLE:
+        raise RuntimeError("OCR não disponível. Instale pdf2image e pytesseract.")
+
+    pdf_file.seek(0)
+    pdf_bytes = pdf_file.read()
+
+    # Converte PDF para imagens
+    images = convert_from_bytes(pdf_bytes, dpi=200)
+
+    # Extrai texto de cada página com OCR
+    text = ""
+    for i, image in enumerate(images):
+        page_text = pytesseract.image_to_string(image, lang='por')
+        text += f"\n--- Página {i+1} ---\n{page_text}"
+
     return text
 
 
