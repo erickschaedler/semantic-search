@@ -11,13 +11,22 @@ from openai import OpenAI
 import chromadb
 from chromadb.config import Settings
 
-# OCR imports
-try:
-    from pdf2image import convert_from_bytes
-    import pytesseract
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
+# OCR será importado sob demanda para não crashar na inicialização
+OCR_AVAILABLE = None  # None = não verificado ainda
+
+
+def check_ocr_available():
+    """Verifica e importa OCR sob demanda."""
+    global OCR_AVAILABLE
+    if OCR_AVAILABLE is None:
+        try:
+            global convert_from_bytes, pytesseract
+            from pdf2image import convert_from_bytes
+            import pytesseract
+            OCR_AVAILABLE = True
+        except ImportError:
+            OCR_AVAILABLE = False
+    return OCR_AVAILABLE
 
 
 # Inicializa cliente OpenAI
@@ -47,7 +56,7 @@ def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
             text += page_text + "\n"
 
     # Se extraiu pouco texto e OCR está disponível, tenta OCR
-    if (use_ocr or len(text.strip()) < 100) and OCR_AVAILABLE:
+    if (use_ocr or len(text.strip()) < 100) and check_ocr_available():
         text = extract_text_with_ocr(pdf_file)
 
     return text
@@ -55,7 +64,7 @@ def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
 
 def extract_text_with_ocr(pdf_file) -> str:
     """Extrai texto de PDF usando OCR (para PDFs escaneados)."""
-    if not OCR_AVAILABLE:
+    if not check_ocr_available():
         raise RuntimeError("OCR não disponível. Instale pdf2image e pytesseract.")
 
     pdf_file.seek(0)
