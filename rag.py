@@ -20,10 +20,11 @@ def get_openai_client(api_key: str = None) -> OpenAI:
 
 # ============== PROCESSAMENTO DE PDF ==============
 
-def extract_text_from_pdf(pdf_file) -> str:
-    """Extrai texto de um arquivo PDF usando pdfplumber."""
+def extract_text_from_pdf(pdf_file, use_ocr: bool = False) -> str:
+    """Extrai texto de um arquivo PDF."""
     pdf_file.seek(0)
 
+    # Primeiro tenta extração normal
     text = ""
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -31,7 +32,42 @@ def extract_text_from_pdf(pdf_file) -> str:
             if page_text:
                 text += page_text + "\n"
 
+    # Se use_ocr ou pouco texto extraído, tenta OCR
+    if use_ocr or len(text.strip()) < 100:
+        pdf_file.seek(0)
+        ocr_text = extract_text_with_ocr(pdf_file)
+        if ocr_text and len(ocr_text) > len(text):
+            text = ocr_text
+
     return text
+
+
+def extract_text_with_ocr(pdf_file) -> str:
+    """Extrai texto usando OCR (para PDFs escaneados)."""
+    try:
+        from pdf2image import convert_from_bytes
+        import pytesseract
+    except ImportError:
+        return ""
+
+    try:
+        pdf_file.seek(0)
+        pdf_bytes = pdf_file.read()
+
+        # Converte PDF para imagens
+        images = convert_from_bytes(pdf_bytes, dpi=150)
+
+        text = ""
+        for i, image in enumerate(images):
+            try:
+                page_text = pytesseract.image_to_string(image, lang='por')
+            except:
+                page_text = pytesseract.image_to_string(image)
+            text += page_text + "\n"
+
+        return text
+    except Exception:
+        return ""
 
 
 def split_text_into_chunks(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:

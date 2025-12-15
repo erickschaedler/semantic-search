@@ -65,6 +65,12 @@ with st.sidebar:
     # Upload de PDF
     st.header("📄 Upload de Manuais")
 
+    use_ocr = st.checkbox(
+        "Usar OCR (para PDFs escaneados)",
+        value=False,
+        help="Ative se o PDF for uma imagem escaneada"
+    )
+
     uploaded_files = st.file_uploader(
         "Selecione PDFs",
         type=["pdf"],
@@ -80,10 +86,13 @@ with st.sidebar:
 
                 try:
                     # Etapa 1: Extrair texto
-                    status.info("📄 Extraindo texto do PDF...")
+                    if use_ocr:
+                        status.info("📄 Extraindo texto com OCR (pode demorar)...")
+                    else:
+                        status.info("📄 Extraindo texto do PDF...")
                     progress_bar.progress(10)
 
-                    text = extract_text_from_pdf(uploaded_file)
+                    text = extract_text_from_pdf(uploaded_file, use_ocr=use_ocr)
 
                     if not text or len(text.strip()) < 50:
                         status.error("PDF sem texto extraível")
