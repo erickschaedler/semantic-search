@@ -6,7 +6,9 @@ import streamlit as st
 import traceback
 from rag import (
     get_openai_client,
-    process_pdf_pipeline,
+    extract_text_from_pdf,
+    split_text_into_chunks,
+    generate_embeddings,
     ask_question_pipeline,
     SimpleVectorStore
 )
@@ -73,23 +75,69 @@ with st.sidebar:
     if uploaded_files and api_key:
         for uploaded_file in uploaded_files:
             if uploaded_file.name not in st.session_state.processed_files:
-                progress_text = st.empty()
-                progress_text.info(f"Processando {uploaded_file.name}...")
+                status = st.empty()
+                progress_bar = st.progress(0)
+
                 try:
+                    # Etapa 1: Extrair texto
+                    status.info("📄 Extraindo texto do PDF...")
+                    progress_bar.progress(10)
+
+                    text = extract_text_from_pdf(uploaded_file)
+
+                    if not text or len(text.strip()) < 50:
+                        status.error("PDF sem texto extraível")
+                        progress_bar.empty()
+                        continue
+
+                    status.info(f"📄 Texto extraído: {len(text)} caracteres")
+                    progress_bar.progress(30)
+
+                    # Etapa 2: Dividir em chunks
+                    status.info("✂️ Dividindo em chunks...")
+                    chunks = split_text_into_chunks(text)
+
+                    if not chunks:
+                        status.error("Falha ao dividir texto")
+                        progress_bar.empty()
+                        continue
+
+                    status.info(f"✂️ {len(chunks)} chunks criados")
+                    progress_bar.progress(50)
+
+                    # Etapa 3: Gerar embeddings
+                    status.info("🧠 Gerando embeddings...")
                     client = get_openai_client(api_key)
-                    num_chunks = process_pdf_pipeline(
-                        uploaded_file,
-                        client,
-                        st.session_state.vector_store,
-                        uploaded_file.name
-                    )
+
+                    # Processa em batches de 20
+                    all_embeddings = []
+                    batch_size = 20
+                    for i in range(0, len(chunks), batch_size):
+                        batch = chunks[i:i+batch_size]
+                        batch_embeddings = generate_embeddings(batch, client)
+                        all_embeddings.extend(batch_embeddings)
+
+                        # Atualiza progresso
+                        pct = 50 + int((i / len(chunks)) * 40)
+                        progress_bar.progress(min(pct, 90))
+                        status.info(f"🧠 Embeddings: {len(all_embeddings)}/{len(chunks)}")
+
+                    # Etapa 4: Salvar no vector store
+                    status.info("💾 Salvando...")
+                    st.session_state.vector_store.add(chunks, all_embeddings, uploaded_file.name)
+
+                    progress_bar.progress(100)
                     st.session_state.processed_files.append(uploaded_file.name)
-                    progress_text.empty()
-                    st.success(f"✓ {uploaded_file.name} ({num_chunks} chunks)")
+
+                    status.empty()
+                    progress_bar.empty()
+                    st.success(f"✓ {uploaded_file.name} ({len(chunks)} chunks)")
+
                 except Exception as e:
-                    progress_text.empty()
+                    status.empty()
+                    progress_bar.empty()
                     st.error(f"Erro: {str(e)}")
-                    with st.expander("Detalhes do erro"):
+                    with st.expander("Detalhes"):
                         st.code(traceback.format_exc())
 
     # Lista de arquivos processados
@@ -113,7 +161,6 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-        # Mostra fontes se houver
         if message["role"] == "assistant" and "sources" in message:
             with st.expander("📖 Trechos relevantes"):
                 for i, source in enumerate(message["sources"], 1):
@@ -123,7 +170,6 @@ for message in st.session_state.messages:
 
 # Input do usuário
 if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
-    # Validações
     if not api_key:
         st.error("⚠️ Configure sua API Key na barra lateral")
         st.stop()
@@ -132,26 +178,22 @@ if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
         st.error("⚠️ Faça upload de pelo menos um manual PDF")
         st.stop()
 
-    # Adiciona mensagem do usuário
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Gera resposta
     with st.chat_message("assistant"):
         with st.spinner("Buscando no manual..."):
             try:
                 client = get_openai_client(api_key)
 
-                # Prepara histórico (últimas 5 mensagens)
                 chat_history = [
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state.messages[-10:]
                     if m["role"] in ["user", "assistant"]
                 ]
 
-                # Faz a pergunta
                 answer, sources = ask_question_pipeline(
                     prompt,
                     client,
@@ -162,7 +204,6 @@ if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
 
                 st.markdown(answer)
 
-                # Mostra fontes
                 if sources:
                     with st.expander("📖 Trechos relevantes"):
                         for i, source in enumerate(sources, 1):
@@ -170,7 +211,6 @@ if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
                             st.text(source[:500] + "..." if len(source) > 500 else source)
                             st.divider()
 
-                # Salva no histórico
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer,
@@ -178,10 +218,7 @@ if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
                 })
 
             except Exception as e:
-                st.error(f"Erro ao processar: {str(e)}")
-
-
-# ============== FOOTER ==============
+                st.error(f"Erro: {str(e)}")
 
 st.divider()
 st.caption("💡 Dica: Quanto mais específica a pergunta, melhor a resposta!")
