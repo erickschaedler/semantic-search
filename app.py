@@ -203,7 +203,7 @@ if prompt := st.chat_input("Faça uma pergunta sobre o manual..."):
                     prompt,
                     client,
                     st.session_state.vector_store,
-                    n_results=3,
+                    n_results=5,
                     chat_history=chat_history[:-1]
                 )
 

@@ -34,7 +34,7 @@ def extract_text_from_pdf(pdf_file) -> str:
     return text
 
 
-def split_text_into_chunks(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str]:
+def split_text_into_chunks(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:
     """Divide o texto em chunks menores - versão simplificada."""
     if not text or len(text) < 10:
         return []
