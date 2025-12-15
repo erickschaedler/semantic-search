@@ -3,4 +3,3 @@ openai==1.6.1
 chromadb==0.4.22
 pypdf==3.17.4
 python-dotenv==1.0.0
-tiktoken==0.5.2
